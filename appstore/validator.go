@@ -115,38 +115,64 @@ func (c *Client) Verify(req IAPRequest, result interface{}) error {
 		return err
 	}
 	defer resp.Body.Close()
+	_, err = c.parseResponse(resp, result, client, req)
+	return err
+}
+
+func (c *Client) VerifyBody(req IAPRequest, result interface{}) (string, error) {
+	client := http.Client{
+		Timeout: c.TimeOut,
+	}
+
+	b := new(bytes.Buffer)
+	json.NewEncoder(b).Encode(req)
+
+	resp, err := client.Post(c.ProductionURL, "application/json; charset=utf-8", b)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
 	return c.parseResponse(resp, result, client, req)
 }
 
-func (c *Client) parseResponse(resp *http.Response, result interface{}, client http.Client, req IAPRequest) error {
+func (c *Client) parseResponse(resp *http.Response, result interface{}, client http.Client, req IAPRequest) (string, error) {
 	// Read the body now so that we can unmarshal it twice
 	buf, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	err = json.Unmarshal(buf, &result)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	// https://developer.apple.com/library/content/technotes/tn2413/_index.html#//apple_ref/doc/uid/DTS40016228-CH1-RECEIPTURL
 	var r StatusResponse
 	err = json.Unmarshal(buf, &r)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if r.Status == 21007 {
 		b := new(bytes.Buffer)
 		json.NewEncoder(b).Encode(req)
 		resp, err := client.Post(c.SandboxURL, "application/json; charset=utf-8", b)
 		if err != nil {
-			return err
+			return "", err
 		}
 		defer resp.Body.Close()
 
-		return json.NewDecoder(resp.Body).Decode(result)
+		buf, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return "", err
+		}
+
+		err = json.Unmarshal(buf, &result)
+		if err != nil {
+			return "", err
+		}
+		return string(buf), nil
 	}
 
-	return nil
+	return string(buf), nil
 }
